@@ -12,6 +12,10 @@ scheduler:
   gamma: 0.5
 
 use_teacher: true
+# Ablation: toggle L_vis (image feature KD) and L_txt (linguistic similarity KD).
+# L_cls-only: use_img_kd=false, use_txt_kd=false (keep use_teacher=true for same student arch).
+use_img_kd: true
+use_txt_kd: true
 
 net:
   _target_: src.models.components.campus.TeacherStudent

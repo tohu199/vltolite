@@ -48,6 +48,8 @@ class KDModule(LightningModule):
         use_teacher: bool,
         kd_criterion,
         compile: bool,
+        use_img_kd: bool = True,
+        use_txt_kd: bool = True,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -128,12 +130,28 @@ class KDModule(LightningModule):
             outputs = self.forward(x)
             img_loss, kd_loss = self.kd_criterion(outputs)
             cls_loss = self.criterion(outputs[1], y)
-            
-            cls_loss_weight, kd_loss_weight = calculate_loss_weights(self.current_epoch, self.trainer.max_epochs)
-            cls_loss = cls_loss_weight*cls_loss
-            img_loss = kd_loss_weight*img_loss
-            kd_loss = kd_loss_weight*kd_loss
-            loss = cls_loss + (img_loss + kd_loss)/2
+
+            cls_loss_weight, kd_loss_weight = calculate_loss_weights(
+                self.current_epoch, self.trainer.max_epochs
+            )
+            cls_loss = cls_loss_weight * cls_loss
+            if self.hparams.use_img_kd:
+                img_loss = kd_loss_weight * img_loss
+            else:
+                img_loss = img_loss.detach() * 0
+            if self.hparams.use_txt_kd:
+                kd_loss = kd_loss_weight * kd_loss
+            else:
+                kd_loss = kd_loss.detach() * 0
+
+            kd_terms = []
+            if self.hparams.use_img_kd:
+                kd_terms.append(img_loss)
+            if self.hparams.use_txt_kd:
+                kd_terms.append(kd_loss)
+            kd_total = sum(kd_terms) / len(kd_terms) if kd_terms else cls_loss * 0
+            loss = cls_loss + kd_total
+
             preds = torch.argmax(outputs[1], dim=1)
             loss_dict["loss"] = loss
             loss_dict["cls_loss"] = cls_loss

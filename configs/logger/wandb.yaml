@@ -14,5 +14,5 @@ wandb:
   group: ""
   tags: []
   job_type: ""
-  name: "${data.data_name}_S(${model.net.student.arch})_T(${model.net.teacher.arch})_${model.use_teacher}"
+  name: "${data.data_name}_S(${model.net.student.arch})_T(${model.net.teacher.arch})_teacher${model.use_teacher}_vis${model.use_img_kd}_txt${model.use_txt_kd}"
 

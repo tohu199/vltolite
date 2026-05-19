@@ -1,0 +1,16 @@
+# @package _global_
+# L_cls + L_vis + L_txt (full VL2Lite)
+defaults:
+  - override /trainer: gpu
+
+tags: ["ablation", "full"]
+
+model:
+  use_teacher: true
+  use_img_kd: true
+  use_txt_kd: true
+
+logger:
+  wandb:
+    tags: ${tags}
+    name: "${data.data_name}_ablation_full"

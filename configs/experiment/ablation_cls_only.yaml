@@ -1,0 +1,16 @@
+# @package _global_
+# L_cls only (same student/teacher architecture, no KD terms)
+defaults:
+  - override /trainer: gpu
+
+tags: ["ablation", "cls_only"]
+
+model:
+  use_teacher: true
+  use_img_kd: false
+  use_txt_kd: false
+
+logger:
+  wandb:
+    tags: ${tags}
+    name: "${data.data_name}_ablation_cls_only"

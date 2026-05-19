@@ -1,0 +1,16 @@
+# @package _global_
+# L_cls + L_txt
+defaults:
+  - override /trainer: gpu
+
+tags: ["ablation", "cls_txt"]
+
+model:
+  use_teacher: true
+  use_img_kd: false
+  use_txt_kd: true
+
+logger:
+  wandb:
+    tags: ${tags}
+    name: "${data.data_name}_ablation_cls_txt"
