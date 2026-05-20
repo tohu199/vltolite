@@ -19,6 +19,8 @@ use_txt_kd: true
 
 net:
   _target_: src.models.components.campus.TeacherStudent
+  # Condensation / alignment: 2 = Linear→ReLU→Linear (default), 1 = single Linear per branch
+  align_num_layers: 2
   #Must set use_teacher as True to use teacher 
   teacher: 
     arch: convnext_xxlarge

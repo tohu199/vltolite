@@ -1,0 +1,7 @@
+# Metrics on disk only (no cloud): plain CSV + TensorBoard event files under the Hydra run dir.
+#
+#   python src/train.py logger=local
+
+defaults:
+  - csv
+  - tensorboard

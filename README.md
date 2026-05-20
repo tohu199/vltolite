@@ -114,6 +114,16 @@ python src/train.py trainer.max_epochs=20 data.batch_size=64
 
 Hydra allows combining or overriding these configs easily.
 
+### Logging (without Weights & Biases)
+
+Default in `configs/train.yaml` is `logger: wandb`. To log **only to local folders** under the Hydra run directory:
+
+- **CSV** (plain `metrics.csv`): `python src/train.py logger=csv`
+- **TensorBoard**: `python src/train.py logger=tensorboard`
+- **Both CSV + TensorBoard, no cloud**: `python src/train.py logger=local`
+
+Hydra also writes `train.log` in the same run folder. Run output root is set in `configs/hydra/default.yaml` (`logs/train/runs/...`).
+
 ---
 
 ## Acknowledgments

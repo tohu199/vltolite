@@ -7,7 +7,14 @@ import open_clip
 feature_norm = lambda x: x / (x.norm(dim=-1, keepdim=True) + 1e-10)
 
 class TeacherStudent(nn.Module):
-    def __init__(self, teacher, student, data_attributes, use_teacher=True):
+    def __init__(
+        self,
+        teacher,
+        student,
+        data_attributes,
+        use_teacher=True,
+        align_num_layers: int = 2,
+    ):
         super(TeacherStudent, self).__init__()
         self.teacher, self.align, self.frozen_nlp_features = None, None, None
         self.data_attributes = data_attributes
@@ -15,7 +22,11 @@ class TeacherStudent(nn.Module):
         if use_teacher:
             device = next(self.student.model.resnet.parameters()).device
             self.teacher = TeacherNet(teacher)
-            self.align = AlignNet(self.teacher.last_features_dim, self.student.num_features)
+            self.align = AlignNet(
+                self.teacher.last_features_dim,
+                self.student.num_features,
+                num_layers=align_num_layers,
+            )
             self.frozen_nlp_features = self.get_frozen_nlp_features(data_attributes)
     
     def get_frozen_nlp_features(self, attributes):
@@ -60,19 +71,31 @@ class TeacherNet(nn.Module):
     
 
 class AlignNet(nn.Module):
-    def __init__(self, in_features, out_features):
-        super(AlignNet, self).__init__()
+    """Projects teacher image/text embeddings toward the student feature dim.
 
-        self.align_img_layer = nn.Sequential(
-            nn.Linear(in_features, out_features), 
-            nn.ReLU(), 
-            nn.Linear(out_features, out_features)
+    * ``num_layers=2`` (default): two linear layers with ReLU (condensation MLP).
+    * ``num_layers=1``: a single linear layer per branch (no hidden layer).
+    """
+
+    def __init__(self, in_features, out_features, num_layers: int = 2):
+        super(AlignNet, self).__init__()
+        if num_layers not in (1, 2):
+            raise ValueError(f"AlignNet num_layers must be 1 or 2, got {num_layers}")
+
+        if num_layers == 1:
+            self.align_img_layer = nn.Linear(in_features, out_features)
+            self.align_nlp_layer = nn.Linear(in_features, out_features)
+        else:
+            self.align_img_layer = nn.Sequential(
+                nn.Linear(in_features, out_features),
+                nn.ReLU(),
+                nn.Linear(out_features, out_features),
             )
-        self.align_nlp_layer = nn.Sequential(
-            nn.Linear(in_features, out_features), 
-            nn.ReLU(), 
-            nn.Linear(out_features, out_features)
-        )
+            self.align_nlp_layer = nn.Sequential(
+                nn.Linear(in_features, out_features),
+                nn.ReLU(),
+                nn.Linear(out_features, out_features),
+            )
     
     def forward(self, x, clip_nlp_features):
         align_img = self.align_img_layer(x)
