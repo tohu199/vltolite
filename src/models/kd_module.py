@@ -1,10 +1,16 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
+import numpy as np
 import torch
 from lightning import LightningModule
+from lightning.pytorch.loggers import TensorBoardLogger
 from torchmetrics import MaxMetric, MeanMetric
+from torchmetrics.classification import (
+    MulticlassAccuracy,
+    MulticlassConfusionMatrix,
+    MulticlassRecall,
+)
 from torchmetrics.classification.accuracy import Accuracy
-import numpy as np
 
 
 class KDModule(LightningModule):
@@ -74,7 +80,16 @@ class KDModule(LightningModule):
         num_classes = self.hparams.net.data_attributes.class_num
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.val_acc = Accuracy(task="multiclass", num_classes=num_classes)
+        self.val_acc_per_class = MulticlassAccuracy(
+            num_classes=num_classes,
+            average="none",
+        )
         self.test_acc = Accuracy(task="multiclass", num_classes=num_classes)
+        self.test_confusion_matrix = MulticlassConfusionMatrix(num_classes=num_classes)
+        # Per-class recall (true class k: how often k is predicted as k)
+        self.test_recall_per_class = MulticlassRecall(
+            num_classes=num_classes, average="none"
+        )
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -87,7 +102,11 @@ class KDModule(LightningModule):
 
         # for tracking best so far validation accuracy
         self.val_acc_best = MaxMetric()
-        
+
+    def on_test_epoch_start(self) -> None:
+        self.test_confusion_matrix.reset()
+        self.test_recall_per_class.reset()
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
@@ -102,7 +121,11 @@ class KDModule(LightningModule):
         # so it's worth to make sure validation metrics don't store results from these checks
         self.val_loss.reset()
         self.val_acc.reset()
+        self.val_acc_per_class.reset()
         self.val_acc_best.reset()
+
+    def on_validation_epoch_start(self) -> None:
+        self.val_acc_per_class.reset()
 
     def model_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor]
@@ -208,6 +231,7 @@ class KDModule(LightningModule):
         # update and log metrics
         self.val_loss(loss)
         self.val_acc(preds, targets)
+        self.val_acc_per_class(preds, targets)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
@@ -218,6 +242,18 @@ class KDModule(LightningModule):
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
         # otherwise metric would be reset by lightning after each epoch
         self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
+
+        per_class = self.val_acc_per_class.compute().detach()  # (C,)
+        self.log(
+            "val/mean_per_class_acc",
+            per_class.mean(),
+            sync_dist=True,
+            prog_bar=False,
+        )
+
+        if self.trainer and getattr(self.trainer, "loggers", None) and self.trainer.is_global_zero:
+            step = int(self.trainer.global_step)
+            self._log_val_per_class_tensorboard(per_class, step)
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
@@ -234,9 +270,119 @@ class KDModule(LightningModule):
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
 
+        self.test_confusion_matrix(preds, targets)
+        self.test_recall_per_class(preds, targets)
+
     def on_test_epoch_end(self) -> None:
-        """Lightning hook that is called when a test epoch ends."""
-        pass
+        """Log per-class recall and confusion matrix (figures / scalars) after test epoch."""
+        recall_pc = self.test_recall_per_class.compute().detach()  # (C,)
+        cm = self.test_confusion_matrix.compute().detach()  # (C, C)
+
+        macro_rec = recall_pc.mean()
+        self.log(
+            "test/macro_recall",
+            macro_rec,
+            prog_bar=False,
+            sync_dist=True,
+        )
+
+        if not self.trainer or not getattr(self.trainer, "loggers", None):
+            return
+
+        step = int(getattr(self.trainer, "global_step", 0) or 0)
+        self._log_test_extended_metrics(
+            confusion_matrix=cm,
+            recall_per_class=recall_pc,
+            step=step,
+        )
+
+    def _log_test_extended_metrics(
+        self,
+        confusion_matrix: torch.Tensor,
+        recall_per_class: torch.Tensor,
+        step: int,
+    ) -> None:
+        """Log confusion matrix image / histograms to TensorBoard and scalars to all loggers."""
+        if not self.trainer.is_global_zero:
+            return
+
+        num_classes = confusion_matrix.shape[0]
+        cm_np = confusion_matrix.float().cpu().numpy()
+        rec_np = recall_per_class.float().cpu().numpy()
+
+        row_sum = cm_np.sum(axis=1, keepdims=True).clip(min=1.0)
+        cm_row_norm = cm_np / row_sum
+
+        loggers: List = list(self.trainer.loggers or [])
+        for lg in loggers:
+            if isinstance(lg, TensorBoardLogger):
+                exp = lg.experiment
+                exp.add_histogram(
+                    "test/per_class_recall",
+                    recall_per_class,
+                    global_step=step,
+                )
+                try:
+                    import matplotlib.pyplot as plt
+
+                    fig_size = float(min(28.0, 6.0 + num_classes * 0.12))
+                    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+                    im = ax.imshow(cm_row_norm, aspect="auto", cmap="Blues", vmin=0.0, vmax=1.0)
+                    ax.set_xlabel("predicted")
+                    ax.set_ylabel("true")
+                    ax.set_title("test confusion (row-normalized: p(pred | true))")
+                    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    plt.tight_layout()
+                    exp.add_figure(
+                        "test/confusion_matrix_row_norm",
+                        fig,
+                        global_step=step,
+                    )
+                    plt.close(fig)
+
+                    fig2, ax2 = plt.subplots(figsize=(max(8.0, num_classes * 0.06), 4.0))
+                    ax2.bar(np.arange(num_classes), rec_np, width=1.0, align="edge")
+                    ax2.set_xlabel("class id (0-based)")
+                    ax2.set_ylabel("per-class recall")
+                    ax2.set_title("test per-class recall")
+                    ax2.set_xlim(0, num_classes)
+                    fig2.tight_layout()
+                    exp.add_figure(
+                        "test/per_class_recall_bar",
+                        fig2,
+                        global_step=step,
+                    )
+                    plt.close(fig2)
+                except ImportError:
+                    pass
+
+    def _log_val_per_class_tensorboard(
+        self, per_class_acc: torch.Tensor, step: int
+    ) -> None:
+        """Log per-class validation accuracy to TensorBoard (histogram + bar chart)."""
+        num_classes = per_class_acc.shape[0]
+        acc_np = per_class_acc.float().cpu().numpy()
+
+        for lg in list(self.trainer.loggers or []):
+            if not isinstance(lg, TensorBoardLogger):
+                continue
+            exp = lg.experiment
+            exp.add_histogram("val/per_class_accuracy", per_class_acc, global_step=step)
+            try:
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(figsize=(max(8.0, num_classes * 0.06), 4.0))
+                ax.bar(np.arange(num_classes), acc_np, width=1.0, align="edge")
+                ax.set_xlabel("class id (0-based)")
+                ax.set_ylabel("per-class accuracy")
+                ax.set_title("val per-class accuracy")
+                ax.set_xlim(0, num_classes)
+                ax.set_ylim(0.0, 1.05)
+                fig.tight_layout()
+                exp.add_figure("val/per_class_accuracy_bar", fig, global_step=step)
+                plt.close(fig)
+            except ImportError:
+                pass
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
