@@ -1,0 +1,10 @@
+name: 0_CUB_200_2011
+sub_dir: /
+prompt_tmpl: "a photo of {}, a type of bird"
+class_num: 5
+classes:
+  1: "class_a"
+  2: "class_b"
+  3: "class_c"
+  4: "class_d"
+  5: "class_e"
