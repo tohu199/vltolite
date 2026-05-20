@@ -46,3 +46,7 @@ kd_criterion:
 
 # compile model for faster training with pytorch 2.0
 compile: false
+
+# Save misclassified test images + TensorBoard grid (`test/misclassified_grid`)
+save_test_failures: false
+test_failure_max_images: 64

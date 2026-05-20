@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -56,6 +57,8 @@ class KDModule(LightningModule):
         compile: bool,
         use_img_kd: bool = True,
         use_txt_kd: bool = True,
+        save_test_failures: bool = False,
+        test_failure_max_images: int = 64,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -103,9 +106,13 @@ class KDModule(LightningModule):
         # for tracking best so far validation accuracy
         self.val_acc_best = MaxMetric()
 
+        # misclassified test samples for optional export (reset each test epoch)
+        self._test_failure_samples: List[Dict[str, Any]] = []
+
     def on_test_epoch_start(self) -> None:
         self.test_confusion_matrix.reset()
         self.test_recall_per_class.reset()
+        self._test_failure_samples = []
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -273,6 +280,9 @@ class KDModule(LightningModule):
         self.test_confusion_matrix(preds, targets)
         self.test_recall_per_class(preds, targets)
 
+        if self.hparams.save_test_failures:
+            self._collect_test_failures(batch, preds, targets)
+
     def on_test_epoch_end(self) -> None:
         """Log per-class recall and confusion matrix (figures / scalars) after test epoch."""
         recall_pc = self.test_recall_per_class.compute().detach()  # (C,)
@@ -286,10 +296,13 @@ class KDModule(LightningModule):
             sync_dist=True,
         )
 
+        step = int(getattr(self.trainer, "global_step", 0) or 0)
+        if self.hparams.save_test_failures:
+            self._export_test_failure_visualizations(step)
+
         if not self.trainer or not getattr(self.trainer, "loggers", None):
             return
 
-        step = int(getattr(self.trainer, "global_step", 0) or 0)
         self._log_test_extended_metrics(
             confusion_matrix=cm,
             recall_per_class=recall_pc,
@@ -355,6 +368,95 @@ class KDModule(LightningModule):
                     plt.close(fig2)
                 except ImportError:
                     pass
+
+    def _denormalize_clip_image(self, x_chw: torch.Tensor) -> torch.Tensor:
+        """Invert CLIP-style normalization used in `KDDataset` transforms."""
+        mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=x_chw.device, dtype=x_chw.dtype)
+        std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=x_chw.device, dtype=x_chw.dtype)
+        mean = mean.view(3, 1, 1)
+        std = std.view(3, 1, 1)
+        return (x_chw * std + mean).clamp(0.0, 1.0)
+
+    def _class_display_name(self, class_idx: int) -> str:
+        classes = self.hparams.net.data_attributes.classes
+        if classes is None:
+            return str(class_idx)
+        for key in (class_idx + 1, class_idx, str(class_idx + 1), str(class_idx)):
+            try:
+                if hasattr(classes, "get"):
+                    v = classes.get(key)
+                else:
+                    v = classes[key] if key in classes else None
+                if v is not None:
+                    return str(v)
+            except (KeyError, TypeError, IndexError, RuntimeError):
+                continue
+        return str(class_idx)
+
+    def _collect_test_failures(
+        self,
+        batch: Tuple[torch.Tensor, torch.Tensor],
+        preds: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> None:
+        max_n = int(self.hparams.test_failure_max_images)
+        if len(self._test_failure_samples) >= max_n:
+            return
+        x, _y = batch
+        wrong = preds != targets
+        idxs = torch.where(wrong)[0]
+        for i in idxs.tolist():
+            if len(self._test_failure_samples) >= max_n:
+                break
+            self._test_failure_samples.append(
+                {
+                    "x": x[i].detach().cpu(),
+                    "pred": int(preds[i].item()),
+                    "target": int(targets[i].item()),
+                }
+            )
+
+    def _export_test_failure_visualizations(self, step: int) -> None:
+        """Write misclassified images under the run directory and log a grid to TensorBoard."""
+        if not self._test_failure_samples or not self.trainer:
+            return
+
+        from torchvision.utils import make_grid, save_image
+
+        root = Path(self.trainer.default_root_dir or ".")
+        out_dir = root / "test_failures" / f"rank_{self.trainer.global_rank:02d}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        for j, item in enumerate(self._test_failure_samples):
+            img = self._denormalize_clip_image(item["x"])
+            t, p = item["target"], item["pred"]
+            fn = f"fail_{j:04d}_true{t}_pred{p}.png"
+            save_image(img, out_dir / fn)
+
+        manifest_path = out_dir / "manifest.txt"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            f.write("index\ttarget\tpred\ttarget_name\tpred_name\n")
+            for j, item in enumerate(self._test_failure_samples):
+                tn = self._class_display_name(item["target"])
+                pn = self._class_display_name(item["pred"])
+                f.write(
+                    f"{j}\t{item['target']}\t{item['pred']}\t{tn}\t{pn}\n"
+                )
+
+        stack = torch.stack(
+            [self._denormalize_clip_image(s["x"]) for s in self._test_failure_samples],
+            dim=0,
+        )
+        nrow = min(8, max(1, stack.shape[0]))
+        grid = make_grid(stack, nrow=nrow, padding=2)
+        save_image(grid, out_dir / "failures_grid.png")
+
+        if not self.trainer.is_global_zero:
+            return
+
+        for lg in list(self.trainer.loggers or []):
+            if isinstance(lg, TensorBoardLogger):
+                lg.experiment.add_image("test/misclassified_grid", grid, global_step=step)
 
     def _log_val_per_class_tensorboard(
         self, per_class_acc: torch.Tensor, step: int
