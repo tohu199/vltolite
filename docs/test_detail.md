@@ -84,3 +84,68 @@ test_failures/rank_XX/
 ### 注意（データの扱い）
 
 このリポジトリでは **validation と test が同じ split を参照する実装**になっている点に注意してください（開発・デバッグ用の理解として）。本番的な「汎化性能」として報告する場合は、split の設計を別途検討してください。
+
+---
+
+## テスト時の t-SNE（生徒・教師画像・教師言語）
+
+### 有効化
+
+`use_teacher=true` が前提です（Teacher なしでは 3 種類の特徴が揃いません）。
+
+```yaml
+save_test_tsne: false
+test_tsne_max_samples: 2000
+test_tsne_perplexity: 30
+```
+
+例:
+
+```bash
+pip install scikit-learn   # 未導入の場合（requirements.txt に記載）
+python src/train.py model.save_test_tsne=true logger=tensorboard
+```
+
+### 収集する特徴（画像 1 枚あたり）
+
+| 保存名 | 元のテンソル | 意味 |
+|--------|--------------|------|
+| **student** | `hidden_features` | 生徒 ResNet のプーリング後ベクトル（L2 正規化済み） |
+| **teacher_image** | `clip_img_features` | 教師 CLIP の画像埋め込み（正規化済み） |
+| **teacher_text_true_class** | `frozen_nlp_features[正解ラベル]` | その画像の **正解クラス** に対応する固定テキスト埋め込み |
+
+**3 種類は次元が異なるため、別々に t-SNE を実行**します（1 枚の図に無理やり混ぜません）。
+
+### サンプル数
+
+- テストを先頭から走査し、最大 **`test_tsne_max_samples`** 枚で打ち切り。
+- **5 枚未満**では t-SNE をスキップします。
+
+### ディスクへの保存
+
+```
+test_tsne/rank_XX/
+  student_tsne.png
+  teacher_image_tsne.png
+  teacher_text_true_class_tsne.png
+  tsne_coords.npz    # 2D 座標・ラベル・perplexity など
+```
+
+`tsne_coords.npz` のキー: `labels`, `student`, `teacher_image`, `teacher_text_true_class`, `perplexity`, `num_samples`。
+
+### TensorBoard（rank 0 のみ）
+
+| タグ |
+|------|
+| `test/tsne_student` |
+| `test/tsne_teacher_image` |
+| `test/tsne_teacher_text` |
+
+### ロガーなしでも
+
+`logger=null` でも **`save_test_tsne=true`** なら **PNG と npz は保存**されます。
+
+### 解釈のヒント
+
+- **student** と **teacher_image** の塊の形が近いほど、視覚 KD（L_vis）が効いている候補。
+- **teacher_text** は「正解クラスの文ベクトル」を各点に載せたものなので、画像ベースの teacher_image とは直接の距離比較はできません（空間が違うため t-SNE も別実行）。

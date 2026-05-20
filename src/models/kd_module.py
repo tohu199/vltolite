@@ -59,6 +59,9 @@ class KDModule(LightningModule):
         use_txt_kd: bool = True,
         save_test_failures: bool = False,
         test_failure_max_images: int = 64,
+        save_test_tsne: bool = False,
+        test_tsne_max_samples: int = 2000,
+        test_tsne_perplexity: int = 30,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -108,11 +111,20 @@ class KDModule(LightningModule):
 
         # misclassified test samples for optional export (reset each test epoch)
         self._test_failure_samples: List[Dict[str, Any]] = []
+        # test-time embeddings for optional t-SNE (reset each test epoch)
+        self._test_tsne_student: List[np.ndarray] = []
+        self._test_tsne_teacher_img: List[np.ndarray] = []
+        self._test_tsne_teacher_txt: List[np.ndarray] = []
+        self._test_tsne_labels: List[int] = []
 
     def on_test_epoch_start(self) -> None:
         self.test_confusion_matrix.reset()
         self.test_recall_per_class.reset()
         self._test_failure_samples = []
+        self._test_tsne_student = []
+        self._test_tsne_teacher_img = []
+        self._test_tsne_teacher_txt = []
+        self._test_tsne_labels = []
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -283,6 +295,9 @@ class KDModule(LightningModule):
         if self.hparams.save_test_failures:
             self._collect_test_failures(batch, preds, targets)
 
+        if self.hparams.save_test_tsne and self.use_teacher:
+            self._collect_test_tsne_features(batch)
+
     def on_test_epoch_end(self) -> None:
         """Log per-class recall and confusion matrix (figures / scalars) after test epoch."""
         recall_pc = self.test_recall_per_class.compute().detach()  # (C,)
@@ -299,6 +314,8 @@ class KDModule(LightningModule):
         step = int(getattr(self.trainer, "global_step", 0) or 0)
         if self.hparams.save_test_failures:
             self._export_test_failure_visualizations(step)
+        if self.hparams.save_test_tsne and self.use_teacher:
+            self._export_test_tsne_visualizations(step)
 
         if not self.trainer or not getattr(self.trainer, "loggers", None):
             return
@@ -392,6 +409,129 @@ class KDModule(LightningModule):
             except (KeyError, TypeError, IndexError, RuntimeError):
                 continue
         return str(class_idx)
+
+    def _collect_test_tsne_features(
+        self, batch: Tuple[torch.Tensor, torch.Tensor]
+    ) -> None:
+        """Accumulate student / teacher image / teacher text (true-class) embeddings."""
+        max_n = int(self.hparams.test_tsne_max_samples)
+        if len(self._test_tsne_labels) >= max_n:
+            return
+
+        x, y = batch
+        with torch.no_grad():
+            outputs = self.net(x)
+        hidden, _out, clip_img, clip_nlp, _aligned_img, _aligned_nlp = outputs
+        # Per-image teacher text: frozen class embedding of the ground-truth label
+        txt_per_image = clip_nlp[y]
+
+        for i in range(x.shape[0]):
+            if len(self._test_tsne_labels) >= max_n:
+                break
+            self._test_tsne_student.append(hidden[i].detach().cpu().numpy())
+            self._test_tsne_teacher_img.append(clip_img[i].detach().cpu().numpy())
+            self._test_tsne_teacher_txt.append(txt_per_image[i].detach().cpu().numpy())
+            self._test_tsne_labels.append(int(y[i].item()))
+
+    def _export_test_tsne_visualizations(self, step: int) -> None:
+        """Run t-SNE per feature space and save PNG / npz under the run directory."""
+        if not self._test_tsne_labels or not self.trainer:
+            return
+
+        n = len(self._test_tsne_labels)
+        if n < 5:
+            return
+
+        try:
+            from sklearn.manifold import TSNE
+        except ImportError:
+            return
+
+        labels = np.array(self._test_tsne_labels, dtype=np.int64)
+        student = np.stack(self._test_tsne_student, axis=0)
+        teacher_img = np.stack(self._test_tsne_teacher_img, axis=0)
+        teacher_txt = np.stack(self._test_tsne_teacher_txt, axis=0)
+
+        perplexity = min(
+            int(self.hparams.test_tsne_perplexity),
+            max(5, (n - 1) // 3),
+            n - 1,
+        )
+
+        root = Path(self.trainer.default_root_dir or ".")
+        out_dir = root / "test_tsne" / f"rank_{self.trainer.global_rank:02d}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        coords: Dict[str, np.ndarray] = {}
+        for name, feats in (
+            ("student", student),
+            ("teacher_image", teacher_img),
+            ("teacher_text_true_class", teacher_txt),
+        ):
+            tsne = TSNE(
+                n_components=2,
+                perplexity=perplexity,
+                init="pca",
+                learning_rate="auto",
+                random_state=42,
+            )
+            coords[name] = tsne.fit_transform(feats).astype(np.float32)
+
+        np.savez(
+            out_dir / "tsne_coords.npz",
+            labels=labels,
+            student=coords["student"],
+            teacher_image=coords["teacher_image"],
+            teacher_text_true_class=coords["teacher_text_true_class"],
+            perplexity=perplexity,
+            num_samples=n,
+        )
+
+        titles = {
+            "student": "Student hidden features (t-SNE)",
+            "teacher_image": "Teacher image features (CLIP, t-SNE)",
+            "teacher_text_true_class": "Teacher text features (true-class embedding, t-SNE)",
+        }
+        tb_names = {
+            "student": "test/tsne_student",
+            "teacher_image": "test/tsne_teacher_image",
+            "teacher_text_true_class": "test/tsne_teacher_text",
+        }
+
+        for key in ("student", "teacher_image", "teacher_text_true_class"):
+            fig = self._tsne_scatter_figure(coords[key], labels, titles[key])
+            fig.savefig(out_dir / f"{key}_tsne.png", dpi=150, bbox_inches="tight")
+            if self.trainer.is_global_zero:
+                for lg in list(self.trainer.loggers or []):
+                    if isinstance(lg, TensorBoardLogger):
+                        lg.experiment.add_figure(tb_names[key], fig, global_step=step)
+            try:
+                import matplotlib.pyplot as plt
+
+                plt.close(fig)
+            except ImportError:
+                pass
+
+    def _tsne_scatter_figure(self, xy: np.ndarray, labels: np.ndarray, title: str):
+        import matplotlib.pyplot as plt
+
+        num_classes = int(labels.max()) + 1 if labels.size else 1
+        fig, ax = plt.subplots(figsize=(8, 7))
+        ax.scatter(
+            xy[:, 0],
+            xy[:, 1],
+            c=labels,
+            s=8,
+            alpha=0.65,
+            cmap="tab20",
+            vmin=0,
+            vmax=max(num_classes - 1, 1),
+        )
+        ax.set_title(title)
+        ax.set_xlabel("t-SNE 1")
+        ax.set_ylabel("t-SNE 2")
+        fig.tight_layout()
+        return fig
 
     def _collect_test_failures(
         self,

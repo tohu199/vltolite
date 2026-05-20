@@ -50,3 +50,8 @@ compile: false
 # Save misclassified test images + TensorBoard grid (`test/misclassified_grid`)
 save_test_failures: false
 test_failure_max_images: 64
+
+# t-SNE on test embeddings (student / teacher image / teacher text); requires use_teacher=true
+save_test_tsne: false
+test_tsne_max_samples: 2000
+test_tsne_perplexity: 30
