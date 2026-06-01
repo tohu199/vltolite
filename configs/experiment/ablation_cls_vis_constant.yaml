@@ -1,0 +1,17 @@
+# @package _global_
+# L_cls + L_vis, loss schedule: constant (w_cls=1, w_kd=1)
+defaults:
+  - override /trainer: gpu
+  - override /model/loss_schedule: constant
+
+tags: ["ablation", "cls_vis", "constant"]
+
+model:
+  use_teacher: true
+  use_img_kd: true
+  use_txt_kd: false
+
+logger:
+  wandb:
+    tags: ${tags}
+    name: "${data.data_name}_ablation_cls_vis_constant"

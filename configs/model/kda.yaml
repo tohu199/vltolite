@@ -1,3 +1,6 @@
+defaults:
+  - loss_schedule: linear_slow
+
 _target_: src.models.kd_module.KDModule
 optimizer:
   _target_: torch.optim.AdamW
@@ -16,6 +19,9 @@ use_teacher: true
 # L_cls-only: use_img_kd=false, use_txt_kd=false (keep use_teacher=true for same student arch).
 use_img_kd: true
 use_txt_kd: true
+# Scale L_vis / L_txt contribution in total loss (1.0 = full; 0.1 = one tenth).
+img_kd_scale: 1.0
+txt_kd_scale: 1.0
 
 net:
   _target_: src.models.components.campus.TeacherStudent

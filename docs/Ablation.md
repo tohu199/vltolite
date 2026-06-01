@@ -7,7 +7,17 @@ Keep `model.use_teacher=true` so all runs share the same student architecture.
 |---------|---------|
 | L_cls only | `python src/train.py experiment=ablation_cls_only` |
 | L_cls + L_vis | `python src/train.py experiment=ablation_cls_vis` |
+| L_cls + L_vis (ramp kd) | `experiment=ablation_cls_vis_ramp_kd` |
+| L_cls + L_vis (constant schedule) | `experiment=ablation_cls_vis_constant` |
+| L_cls + L_vis ×0.1 | `experiment=ablation_cls_vis_vis010` |
+| L_cls + L_vis ×0.1 + ramp kd | `experiment=ablation_cls_vis_ramp_kd_vis010` |
+| L_cls + L_vis ×0.1 + constant | `experiment=ablation_cls_vis_constant_vis010` |
 | L_cls + L_txt | `python src/train.py experiment=ablation_cls_txt` |
+| L_cls + L_txt (ramp kd) | `experiment=ablation_cls_txt_ramp_kd` |
+| L_cls + L_txt (constant schedule) | `experiment=ablation_cls_txt_constant` |
+| L_cls + L_txt ×0.1 | `experiment=ablation_cls_txt_txt010` |
+| L_cls + L_txt ×0.1 + ramp kd | `experiment=ablation_cls_txt_ramp_kd_txt010` |
+| L_cls + L_txt ×0.1 + constant | `experiment=ablation_cls_txt_constant_txt010` |
 | L_cls + L_vis + L_txt | `python src/train.py experiment=ablation_full` |
 
 Run all four sequentially:
@@ -21,6 +31,8 @@ Or override flags directly:
 ```bash
 python src/train.py trainer=gpu model.use_img_kd=false model.use_txt_kd=false
 ```
+
+Loss weight schedule (`linear_slow` / `linear_ramp_kd` / `constant`): see [loss_schedule.md](loss_schedule.md).
 
 ----
 

@@ -57,6 +57,9 @@ class KDModule(LightningModule):
         compile: bool,
         use_img_kd: bool = True,
         use_txt_kd: bool = True,
+        img_kd_scale: float = 1.0,
+        txt_kd_scale: float = 1.0,
+        loss_schedule=None,
         save_test_failures: bool = False,
         test_failure_max_images: int = 64,
         save_test_tsne: bool = False,
@@ -79,6 +82,12 @@ class KDModule(LightningModule):
         self.use_teacher = use_teacher
         if use_teacher:
             self.kd_criterion = kd_criterion
+            if loss_schedule is None:
+                raise ValueError(
+                    "loss_schedule is required when use_teacher=true "
+                    "(set model/loss_schedule in config)."
+                )
+            self.loss_schedule = loss_schedule
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
 
@@ -159,13 +168,6 @@ class KDModule(LightningModule):
             - A tensor of target labels.
         """
 
-        def calculate_loss_weights(current_epoch, total_epochs):
-            weight1 = current_epoch / (total_epochs * 8)
-            weight1 = np.clip(weight1, 0, 1)
-            weight2 = 1 - weight1
-            weight2 = np.clip(weight2, 0, 1)
-            return weight1, weight2
-
         x, y = batch
         loss_dict = {}
         if self.use_teacher:
@@ -173,16 +175,20 @@ class KDModule(LightningModule):
             img_loss, kd_loss = self.kd_criterion(outputs)
             cls_loss = self.criterion(outputs[1], y)
 
-            cls_loss_weight, kd_loss_weight = calculate_loss_weights(
+            cls_loss_weight, kd_loss_weight = self.loss_schedule(
                 self.current_epoch, self.trainer.max_epochs
             )
             cls_loss = cls_loss_weight * cls_loss
             if self.hparams.use_img_kd:
-                img_loss = kd_loss_weight * img_loss
+                img_loss = (
+                    kd_loss_weight * self.hparams.img_kd_scale * img_loss
+                )
             else:
                 img_loss = img_loss.detach() * 0
             if self.hparams.use_txt_kd:
-                kd_loss = kd_loss_weight * kd_loss
+                kd_loss = (
+                    kd_loss_weight * self.hparams.txt_kd_scale * kd_loss
+                )
             else:
                 kd_loss = kd_loss.detach() * 0
 
@@ -233,6 +239,15 @@ class KDModule(LightningModule):
             self.log("train/kd_loss", self.kd_loss, on_step=False, on_epoch=True, prog_bar=True)
         # return loss or backpropagation will fail
         return loss
+
+    def on_train_epoch_start(self) -> None:
+        if not self.use_teacher:
+            return
+        w_cls, w_kd = self.loss_schedule(
+            self.current_epoch, self.trainer.max_epochs
+        )
+        self.log("train/w_cls", w_cls, on_step=False, on_epoch=True)
+        self.log("train/w_kd", w_kd, on_step=False, on_epoch=True)
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."

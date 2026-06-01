@@ -1,0 +1,17 @@
+# @package _global_
+# L_cls + L_txt at 1/10 scale (txt_kd_scale=0.1), default linear_slow schedule
+defaults:
+  - override /trainer: gpu
+
+tags: ["ablation", "cls_txt", "txt010"]
+
+model:
+  use_teacher: true
+  use_img_kd: false
+  use_txt_kd: true
+  txt_kd_scale: 0.1
+
+logger:
+  wandb:
+    tags: ${tags}
+    name: "${data.data_name}_ablation_cls_txt_txt010"

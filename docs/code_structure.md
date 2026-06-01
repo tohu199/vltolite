@@ -87,7 +87,7 @@ flowchart LR
 - **`KDModule`** が Lightning の `training_step` / `validation_step` / `test_step` を実装。
 - **`model_step`** が 1 バッチの損失の中心。
   - **分類損失**（`CrossEntropyLoss`）と、Teacher あり時の **L_vis（`img_loss`）・L_txt（`kd_loss`）** を合成。
-  - **エポック依存の重み** `calculate_loss_weights`（序盤 KD 寄り → 後半分類寄り）はここ。
+  - **エポック依存の重み** `loss_schedule`（`configs/model/loss_schedule/`、詳細は `docs/loss_schedule.md`）。
   - **`use_img_kd` / `use_txt_kd`** によるアブレーション分岐もここ。
 
 **改良例**: 重み付けスケジュールの変更、損失の足し方（平均以外）、補助損失の追加、メトリクスログの追加。

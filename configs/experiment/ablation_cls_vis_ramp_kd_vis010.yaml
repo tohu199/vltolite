@@ -1,0 +1,18 @@
+# @package _global_
+# L_cls + L_vis at 1/10, loss schedule: linear_ramp_kd
+defaults:
+  - override /trainer: gpu
+  - override /model/loss_schedule: linear_ramp_kd
+
+tags: ["ablation", "cls_vis", "ramp_kd", "vis010"]
+
+model:
+  use_teacher: true
+  use_img_kd: true
+  use_txt_kd: false
+  img_kd_scale: 0.1
+
+logger:
+  wandb:
+    tags: ${tags}
+    name: "${data.data_name}_ablation_cls_vis_ramp_kd_vis010"

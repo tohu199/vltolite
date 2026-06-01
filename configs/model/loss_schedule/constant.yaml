@@ -1,0 +1,3 @@
+_target_: src.models.components.loss_schedule.ConstantSchedule
+w_cls: 1.0
+w_kd: 1.0
