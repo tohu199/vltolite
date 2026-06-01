@@ -1,0 +1,27 @@
+# @package _global_
+# Quick smoke test: few steps, small batch, lightweight CLIP teacher.
+defaults:
+  - override /trainer: cpu
+  - override /callbacks: model_checkpoint
+
+tags: ["smoke_test"]
+
+trainer:
+  max_epochs: 1
+  limit_train_batches: 2
+  limit_val_batches: 1
+  limit_test_batches: 2
+
+data:
+  batch_size: 4
+  num_workers: 0
+
+model:
+  net:
+    teacher:
+      arch: ViT-B-32
+      pretrained: openai
+  save_test_failures: true
+  test_failure_max_images: 4
+  save_test_tsne: true
+  test_tsne_max_samples: 12

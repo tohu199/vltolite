@@ -439,7 +439,7 @@ class KDModule(LightningModule):
             return
 
         n = len(self._test_tsne_labels)
-        if n < 5:
+        if n < 4:
             return
 
         try:
