@@ -1,0 +1,21 @@
+# @package _global_
+# Smoke test for phase-1 AlignSAE pretraining.
+defaults:
+  - override /trainer: cpu
+  - override /callbacks: align_pretrain
+
+tags: ["smoke_pretrain_align"]
+
+trainer:
+  max_epochs: 1
+  limit_train_batches: 2
+  limit_val_batches: 1
+
+data:
+  batch_size: 4
+  num_workers: 0
+
+model:
+  teacher:
+    arch: ViT-B-32
+    pretrained: openai

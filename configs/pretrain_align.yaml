@@ -1,0 +1,21 @@
+# @package _global_
+defaults:
+  - _self_
+  - data: kd_data
+  - model: align_pretrain
+  - callbacks: align_pretrain
+  - logger: tensorboard
+  - trainer: cpu
+  - paths: default
+  - extras: default
+  - hydra: default
+  - experiment: null
+  - optional local: default
+
+task_name: pretrain_align
+tags: ["align_pretrain"]
+train: true
+test: false
+ckpt_path: null
+seed: null
+optimized_metric: null

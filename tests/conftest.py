@@ -96,7 +96,36 @@ def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
 
     :return: A DictConfig with updated output and log directories corresponding to `tmp_path`.
     """
-    cfg = cfg_eval_global.copy()
+    yield cfg
+
+    GlobalHydra.instance().clear()
+
+
+@pytest.fixture(scope="package")
+def cfg_pretrain_align_global() -> DictConfig:
+    with initialize(version_base="1.3", config_path="../configs"):
+        cfg = compose(config_name="pretrain_align.yaml", return_hydra_config=True, overrides=[])
+
+        with open_dict(cfg):
+            cfg.paths.root_dir = str(rootutils.find_root(indicator=".project-root"))
+            cfg.trainer.max_epochs = 1
+            cfg.trainer.limit_train_batches = 0.01
+            cfg.trainer.limit_val_batches = 0.1
+            cfg.trainer.accelerator = "cpu"
+            cfg.trainer.devices = 1
+            cfg.trainer.enable_progress_bar = False
+            cfg.data.num_workers = 0
+            cfg.data.pin_memory = False
+            cfg.extras.print_config = False
+            cfg.extras.enforce_tags = False
+            cfg.logger = None
+
+    return cfg
+
+
+@pytest.fixture(scope="function")
+def cfg_pretrain_align(cfg_pretrain_align_global: DictConfig, tmp_path: Path) -> DictConfig:
+    cfg = cfg_pretrain_align_global.copy()
 
     with open_dict(cfg):
         cfg.paths.output_dir = str(tmp_path)

@@ -27,6 +27,10 @@ net:
   _target_: src.models.components.campus.TeacherStudent
   # Condensation / alignment: 2 = Linear→ReLU→Linear (default), 1 = single Linear per branch
   align_num_layers: 2
+  # Optional: encoder weights from phase-1 AlignSAE pretraining (align_encoder.ckpt)
+  align_checkpoint: null
+  # When true, keep AlignNet frozen during KD (encoder weights still loaded if align_checkpoint is set)
+  freeze_align: false
   #Must set use_teacher as True to use teacher 
   teacher: 
     arch: convnext_xxlarge

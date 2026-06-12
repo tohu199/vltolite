@@ -1,0 +1,14 @@
+# @package _global_
+# Phase-2 KD using a phase-1 AlignSAE encoder checkpoint.
+# Run pretrain first, then point align_checkpoint at align_encoder.ckpt.
+#
+# Example:
+#   python src/pretrain_align.py trainer=gpu experiment=smoke_pretrain_align
+#   python src/train.py trainer=gpu \
+#     model.net.align_checkpoint=/path/to/runs/.../align_encoder.ckpt
+
+tags: ["kd_sae_align"]
+
+model:
+  net:
+    align_checkpoint: null  # set via CLI to your pretrain run output

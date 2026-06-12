@@ -1,0 +1,31 @@
+_target_: src.models.align_pretrain_module.AlignPretrainModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  _partial_: true
+  step_size: 30
+  gamma: 0.5
+
+teacher:
+  arch: convnext_xxlarge
+  pretrained: laion2b_s34b_b82k_augreg_soup
+
+student:
+  arch: resnet18
+
+data_attributes: ${data.train_dataset.attributes}
+
+align_num_layers: 2
+sparsity_weight: 0.001
+text_recon_weight: 1.0
+
+recon_criterion:
+  _target_: torch.nn.L1Loss
+
+compile: false

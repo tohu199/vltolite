@@ -1,8 +1,13 @@
+from pathlib import Path
+from typing import Optional, Union
+
 import torch
 from torch import nn
 import torchvision.models as models
 
 import open_clip
+
+from src.models.components.align_sae import _build_align_mlp, load_align_encoder_checkpoint
 
 feature_norm = lambda x: x / (x.norm(dim=-1, keepdim=True) + 1e-10)
 
@@ -14,19 +19,24 @@ class TeacherStudent(nn.Module):
         data_attributes,
         use_teacher=True,
         align_num_layers: int = 2,
+        align_checkpoint: Optional[str] = None,
+        freeze_align: bool = False,
     ):
         super(TeacherStudent, self).__init__()
         self.teacher, self.align, self.frozen_nlp_features = None, None, None
         self.data_attributes = data_attributes
         self.student = StudentNet(student, data_attributes.class_num, use_teacher)
         if use_teacher:
-            device = next(self.student.model.resnet.parameters()).device
             self.teacher = TeacherNet(teacher)
             self.align = AlignNet(
                 self.teacher.last_features_dim,
                 self.student.num_features,
                 num_layers=align_num_layers,
             )
+            if align_checkpoint:
+                load_align_encoder_checkpoint(self.align, align_checkpoint)
+            if freeze_align:
+                self.align.requires_grad_(False)
             self.frozen_nlp_features = self.get_frozen_nlp_features(data_attributes)
     
     def get_frozen_nlp_features(self, attributes):
@@ -79,28 +89,16 @@ class AlignNet(nn.Module):
 
     def __init__(self, in_features, out_features, num_layers: int = 2):
         super(AlignNet, self).__init__()
-        if num_layers not in (1, 2):
-            raise ValueError(f"AlignNet num_layers must be 1 or 2, got {num_layers}")
+        self.align_img_layer = _build_align_mlp(in_features, out_features, num_layers)
+        self.align_nlp_layer = _build_align_mlp(in_features, out_features, num_layers)
 
-        if num_layers == 1:
-            self.align_img_layer = nn.Linear(in_features, out_features)
-            self.align_nlp_layer = nn.Linear(in_features, out_features)
-        else:
-            self.align_img_layer = nn.Sequential(
-                nn.Linear(in_features, out_features),
-                nn.ReLU(),
-                nn.Linear(out_features, out_features),
-            )
-            self.align_nlp_layer = nn.Sequential(
-                nn.Linear(in_features, out_features),
-                nn.ReLU(),
-                nn.Linear(out_features, out_features),
-            )
-    
     def forward(self, x, clip_nlp_features):
         align_img = self.align_img_layer(x)
         align_nlp = self.align_nlp_layer(clip_nlp_features)
         return feature_norm(align_img), feature_norm(align_nlp)
+
+    def load_encoder_checkpoint(self, checkpoint: Union[str, Path]):
+        load_align_encoder_checkpoint(self, checkpoint)
 
 
 
