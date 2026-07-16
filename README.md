@@ -44,34 +44,21 @@ This repository provides a **PyTorch Lightning + Hydra** codebase for distilling
 
 ## Installation
 
-1. **Clone project**:
-   ```bash
-   git clone https://github.com/jsjangAI/VL2Lite
-   cd vl2lite
-   ```
+See **[exp/setup.md](exp/setup.md)** for step-by-step setup on WSL2 (venv, PyTorch, dependencies, smoke test).
 
-2. *(Optional)* **Create conda environment**:
-   ```bash
-   conda create -n vl2lite_env python=3.9
-   conda activate vl2lite_env
-   ```
+Brief summary:
 
-3. **Install PyTorch** per [official instructions](https://pytorch.org/get-started/).
-
-4. **Install requirements**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+1. Clone the repository and create a Python 3.9+ virtual environment.
+2. Install [PyTorch](https://pytorch.org/get-started/) (CUDA build for GPU training).
+3. Run `pip install -r requirements.txt` and `pip install open_clip_torch pandas scipy`.
 
 ---
 
 ## Data Setup
 
-If your dataset is in a different path, create a soft link:
-```bash
-ln -s ./data/kd_datasets /data/KD_datasets
-```
-Update `configs/data/` if needed.
+Dataset preparation and switching (CUB, CIFAR-10, etc.) are documented in **[exp/cifar10.md](exp/cifar10.md)**.
+
+Default dataset is **CUB-200-2011**. Place data under `data/kd_datasets/<dataset_name>/`, or use `paths.data_dir` / a symlink if your files live elsewhere.
 
 ---
 

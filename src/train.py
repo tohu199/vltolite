@@ -1,4 +1,4 @@
-#python3 train.py -m data.attributes.name=0_CUB_200_2011,1_FGVC_AIRCRAFT,2_NABirds,3_DTD,4_OxfordIIITPet,5_StanfordDogs,6_StanfordCars,7_CALTECH101,8_CALTECH256,9_GTSRB model.use_teacher=true,false
+#python3 train.py -m data.attributes.name=0_CUB_200_2011,10_CIFAR10,11_MNIST,1_FGVC_AIRCRAFT,2_NABirds,3_DTD,4_OxfordIIITPet,5_StanfordDogs,6_StanfordCars,7_CALTECH101,8_CALTECH256,9_GTSRB model.use_teacher=true,false
 
 from typing import Any, Dict, List, Optional, Tuple
 

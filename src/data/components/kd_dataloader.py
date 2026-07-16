@@ -1,6 +1,6 @@
 from typing import Any
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
+from torchvision import datasets, transforms
 from PIL import Image
 import os
 import pandas as pd
@@ -85,6 +85,10 @@ class KDDataset(Dataset):
             return Caltech256Dataset(self.root_dir, split=self.split, transform=self.transform)
         elif data_name == '9_GTSRB':
             return GTSRBTestDataset(self.root_dir, split=self.split, transform=self.transform)
+        elif data_name == '10_CIFAR10':
+            return CIFAR10Dataset(self.root_dir, split=self.split, transform=self.transform)
+        elif data_name == '11_MNIST':
+            return MNISTDataset(self.root_dir, split=self.split, transform=self.transform)
 
     def __len__(self):
         return len(self.dataloader)
@@ -93,6 +97,107 @@ class KDDataset(Dataset):
         return self.dataloader[idx]
     
 
+
+
+class CIFAR10Dataset(Dataset):
+    _ARCHIVE = "cifar-10-python.tar.gz"
+    _ARCHIVE_MD5 = "c58f30108f718f92721af3b95e74349a"
+    _EXTRACTED_DIR = "cifar-10-batches-py"
+
+    @classmethod
+    def _ensure_downloaded(cls, root_dir: str) -> None:
+        extracted = os.path.join(root_dir, cls._EXTRACTED_DIR)
+        if os.path.isdir(extracted):
+            return
+
+        archive = os.path.join(root_dir, cls._ARCHIVE)
+        if os.path.isfile(archive):
+            from torchvision.datasets.utils import check_integrity
+
+            if not check_integrity(archive, cls._ARCHIVE_MD5):
+                os.remove(archive)
+
+    def __init__(self, root_dir, split="train", transform=None):
+        assert split in ["train", "test"], "split should be either 'train' or 'test'"
+
+        os.makedirs(root_dir, exist_ok=True)
+        self._ensure_downloaded(root_dir)
+        download = not os.path.isdir(os.path.join(root_dir, self._EXTRACTED_DIR))
+
+        self.dataset = datasets.CIFAR10(
+            root=root_dir,
+            train=(split == "train"),
+            download=download,
+            transform=None,
+        )
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        image, label = self.dataset[idx]
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
+
+
+class MNISTDataset(Dataset):
+    _MNIST_DIR = "MNIST"
+
+    @classmethod
+    def _is_ready(cls, root_dir: str) -> bool:
+        processed = os.path.join(root_dir, cls._MNIST_DIR, "processed")
+        return os.path.isfile(os.path.join(processed, "training.pt")) and os.path.isfile(
+            os.path.join(processed, "test.pt")
+        )
+
+    @classmethod
+    def _ensure_downloaded(cls, root_dir: str) -> None:
+        if cls._is_ready(root_dir):
+            return
+
+        raw = os.path.join(root_dir, cls._MNIST_DIR, "raw")
+        if not os.path.isdir(raw):
+            return
+
+        from torchvision.datasets.mnist import MNIST
+        from torchvision.datasets.utils import check_integrity
+
+        for resource, md5 in MNIST.resources:
+            filename = resource.rsplit("/", 1)[-1]
+            filepath = os.path.join(raw, filename)
+            if os.path.isfile(filepath) and not check_integrity(filepath, md5):
+                os.remove(filepath)
+
+    def __init__(self, root_dir, split="train", transform=None):
+        assert split in ["train", "test"], "split should be either 'train' or 'test'"
+
+        os.makedirs(root_dir, exist_ok=True)
+        self._ensure_downloaded(root_dir)
+        download = not self._is_ready(root_dir)
+
+        self.dataset = datasets.MNIST(
+            root=root_dir,
+            train=(split == "train"),
+            download=download,
+            transform=None,
+        )
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        image, label = self.dataset[idx]
+        image = image.convert("RGB")
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
 
 
 class GTSRBTestDataset(Dataset):

@@ -2,7 +2,7 @@ CUB 以外でも、**データ用の属性設定（クラス数・プロンプ�
 
 ## 1. データセットの切り替え（Hydra）
 
-`configs/data/kd_data.yaml` のデフォルトは `attributes: 0_CUB_200_2011` です。別データセットにするには **`data.attributes` を上書き**します。
+`configs/data/kd_data.yaml` のデフォルトは `attributes: 0_CUB_200_2011` です。別データセットにするには **`data/attributes` を上書き**します（Hydra の config group 指定。`data.attributes` ではなく `data/attributes`）。
 
 利用可能な定義ファイルは `configs/data/attributes/` 内の名前に対応します（例）：
 
@@ -18,30 +18,32 @@ CUB 以外でも、**データ用の属性設定（クラス数・プロンプ�
 | `7_CALTECH101` | Caltech-101 |
 | `8_CALTECH256` | Caltech-256 |
 | `9_GTSRB` | GTSRB |
+| `10_CIFAR10` | CIFAR-10（自動ダウンロード） |
+| `11_MNIST` | MNIST（自動ダウンロード） |
 
 実行例（Stanford Cars のとき）:
 
 ```bash
-python src/train.py data.attributes=6_StanfordCars trainer=gpu
+python src/train.py data/attributes=6_StanfordCars trainer=gpu
 ```
 
 アブレーション実験プリセットを使う場合:
 
 ```bash
-python src/train.py experiment=ablation_full data.attributes=6_StanfordCars
+python src/train.py experiment=ablation_full data/attributes=6_StanfordCars
 ```
 
 スクリプトでまとめて回す場合:
 
 ```bash
-bash src/train_ablation.sh data.attributes=6_StanfordCars seed=42
+bash src/train_ablation.sh data/attributes=6_StanfordCars seed=42
 ```
 
 複数データセットを順番に回す（Hydra のリストではなく、`-m` でスイープする例）:
 
 ```bash
 python src/train.py -m experiment=ablation_full \
-  data.attributes=1_FGVC_AIRCRAFT,2_NABirds,6_StanfordCars
+  data/attributes=1_FGVC_AIRCRAFT,2_NABirds,6_StanfordCars
 ```
 
 ## 2. データの置き場所
@@ -54,7 +56,7 @@ python src/train.py -m experiment=ablation_full \
 README のとおり、別パスにデータがある場合はシンボリックリンクするか、`paths.data_dir` を上書きしてください。
 
 ```bash
-python src/train.py data.attributes=9_GTSRB paths.data_dir=/your/path/kd_datasets/
+python src/train.py data/attributes=9_GTSRB paths.data_dir=/your/path/kd_datasets/
 ```
 
 （末尾は `kd_datasets/` のまま、`data_name` サブフォルダがその下に来る形です。）
@@ -66,4 +68,4 @@ python src/train.py data.attributes=9_GTSRB paths.data_dir=/your/path/kd_dataset
 
 ---
 
-**まとめ:** CUB 以外は **`data.attributes=<属性ファイル名>`** を付けるだけでよく、データは **`data/kd_datasets/<その名前>/`** に置くのがデフォルトの前提です。
+**まとめ:** CUB 以外は **`data/attributes=<属性ファイル名>`** を付けるだけでよく、データは **`data/kd_datasets/<その名前>/`** に置くのがデフォルトの前提です。手順の詳細は [exp/cifar10.md](../exp/cifar10.md) も参照してください。
